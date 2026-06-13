@@ -1,0 +1,305 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://soundchecklive.io/schemas/universal-event-format/1.1",
+  "title": "Universal Event Format (UEF)",
+  "description": "Soundcheck's canonical ingestion format. Operator data (spreadsheets, pasted text, PDFs, CRM exports) is transformed into a UEF document before it reaches Soundcheck's normalized tables. One document per import job. The reader iterates the collection matching target_type. v1.1 is a strict additive superset of v1.0.",
+  "type": "object",
+  "required": ["schema_version", "target_type", "source", "events"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["1.0", "1.1"],
+      "description": "Document schema version. Empty/absent is treated as 1.0. v1.1 adds per-record provenance/op and standalone-entity collections."
+    },
+    "target_type": {
+      "type": "string",
+      "enum": ["EVENT", "LEAD", "INVENTORY", "MEMBER", "SPONSOR", "ACCOUNT", "SETLIST", "CALLLIST"],
+      "description": "The output entity this import writes into. EVENT is the default. A LEAD import populates both leads and (for qualifying rows) events."
+    },
+    "source": { "$ref": "#/definitions/Source" },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Event" }
+    },
+    "leads": { "type": "array", "items": { "$ref": "#/definitions/Lead" } },
+    "items": { "type": "array", "items": { "$ref": "#/definitions/InventoryItem" } },
+    "org_members": { "type": "array", "items": { "$ref": "#/definitions/OrgMember" } },
+    "venues": { "type": "array", "items": { "$ref": "#/definitions/Venue" } },
+    "customers": { "type": "array", "items": { "$ref": "#/definitions/Customer" } },
+    "sponsors": { "type": "array", "items": { "$ref": "#/definitions/Sponsor" } },
+    "setlists": { "type": "array", "items": { "$ref": "#/definitions/Setlist" } },
+    "calllists": { "type": "array", "items": { "$ref": "#/definitions/Calllist" } },
+    "accounts": { "type": "array", "items": { "$ref": "#/definitions/Account" } }
+  },
+  "definitions": {
+    "Source": {
+      "type": "object",
+      "description": "Document-level source attribution (one import job). Per-record provenance (v1.1) overrides this when present.",
+      "required": ["type", "name"],
+      "properties": {
+        "type": { "type": "string", "enum": ["SPREADSHEET", "PASTE", "INGESTION", "HUBSPOT", "FLEX"], "description": "Origin channel of the document." },
+        "name": { "type": "string", "description": "Operator-facing label (filename, etc.)." },
+        "ingested_at": { "type": "string", "format": "date-time", "description": "RFC3339 timestamp." },
+        "import_job_id": { "type": "string" },
+        "requested_by_user_id": { "type": "string", "description": "Clerk id of the operator who committed the import." }
+      }
+    },
+    "Provenance": {
+      "type": "object",
+      "description": "v1.1 per-record source attribution. Supersedes document-level source for multi-source documents.",
+      "properties": {
+        "source_system": { "type": "string", "enum": ["HUBSPOT", "FLEX", "SPREADSHEET", "PASTE", "INGESTION"] },
+        "external_id": { "type": "string", "description": "Stable id of the record in the source system." },
+        "fetched_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "RecordMeta": {
+      "description": "v1.1 per-record ETL envelope, inlined into every loadable entity.",
+      "type": "object",
+      "properties": {
+        "provenance": { "$ref": "#/definitions/Provenance" },
+        "op": { "type": "string", "enum": ["upsert", "delete"], "description": "Operation. Empty value means upsert. delete is a tombstone honored per the loader's delete policy." }
+      }
+    },
+    "Event": {
+      "type": "object",
+      "required": ["title", "event_date"],
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "external_id": { "type": "string", "description": "Identity for dedup; defaults to import_job_id:rowIndex." },
+        "title": { "type": "string" },
+        "event_type": { "type": "string" },
+        "event_date": { "type": "string", "description": "YYYY-MM-DD" },
+        "start_time": { "type": "string", "format": "date-time", "description": "RFC3339" },
+        "end_time": { "type": "string", "format": "date-time", "description": "RFC3339" },
+        "status": { "type": "string", "enum": ["ACTIVE", "DRAFT", "TEMPLATE", "ARCHIVED"] },
+        "currency": { "type": "string", "description": "ISO 4217, e.g. USD." },
+        "default_performance_fee": { "type": ["number", "null"] },
+        "payment_terms": { "type": "string" },
+        "notes": { "type": "string" },
+        "admin_notes": { "type": "string" },
+        "location": { "type": "string", "description": "Free-text address." },
+        "location_name": { "type": "string" },
+        "place_id": { "type": "string", "description": "Google Places id." },
+        "latitude": { "type": ["number", "null"] },
+        "longitude": { "type": ["number", "null"] },
+        "venue": { "$ref": "#/definitions/Venue" },
+        "customer": { "$ref": "#/definitions/Customer" },
+        "members": { "type": "array", "items": { "$ref": "#/definitions/Member" } },
+        "schedule_items": { "type": "array", "items": { "$ref": "#/definitions/ScheduleItem" } },
+        "ledger_items": { "type": "array", "items": { "$ref": "#/definitions/LedgerItem" } },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "Venue": {
+      "type": "object",
+      "required": ["name"],
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "external_id": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "state": { "type": "string" },
+        "postal_code": { "type": "string" },
+        "country": { "type": "string" },
+        "place_id": { "type": "string" },
+        "latitude": { "type": ["number", "null"] },
+        "longitude": { "type": ["number", "null"] },
+        "phone_number": { "type": "string" },
+        "website": { "type": "string" },
+        "notes": { "type": "string" },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "Customer": {
+      "type": "object",
+      "required": ["name"],
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "external_id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "website": { "type": "string" },
+        "notes": { "type": "string" },
+        "contacts": { "type": "array", "items": { "$ref": "#/definitions/Contact" } },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "Contact": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "external_id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone_number": { "type": "string" },
+        "title": { "type": "string" },
+        "is_primary": { "type": ["boolean", "null"] }
+      }
+    },
+    "Member": {
+      "type": "object",
+      "description": "A crew/performer assigned to the event.",
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "external_id": { "type": "string" },
+        "first_name": { "type": "string" },
+        "last_name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone_number": { "type": "string" },
+        "position": { "type": "string", "description": "Human-readable; resolved against OrgPosition." },
+        "performance_fee": { "type": ["number", "null"] },
+        "fee_notes": { "type": "string" },
+        "call_order": { "type": ["integer", "null"], "description": "0 = primary, 1+ = backup." },
+        "source_file_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ScheduleItem": {
+      "type": "object",
+      "required": ["name", "start_time"],
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "external_id": { "type": "string" },
+        "name": { "type": "string" },
+        "start_time": { "type": "string", "format": "date-time", "description": "RFC3339" },
+        "end_time": { "type": "string", "format": "date-time" },
+        "notes": { "type": "string" },
+        "order": { "type": "integer" },
+        "source_file_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "LedgerItem": {
+      "type": "object",
+      "description": "One financial row mapped onto a LedgerItem; account resolved from account_hint.",
+      "required": ["type", "description", "amount"],
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "type": { "type": "string", "enum": ["INCOME", "EXPENSE", "PAYABLE", "RECEIVABLE"] },
+        "description": { "type": "string" },
+        "amount": { "type": ["number", "null"] },
+        "currency": { "type": "string", "description": "Defaults to the event's currency." },
+        "date": { "type": "string", "description": "YYYY-MM-DD; due date for PAYABLE/RECEIVABLE." },
+        "status": { "type": "string", "enum": ["UNPAID", "PAID"], "description": "Defaults to UNPAID." },
+        "counterparty_name": { "type": "string" },
+        "counterparty_email": { "type": "string", "format": "email" },
+        "account_hint": { "type": "string", "description": "Category/account label from the source." },
+        "notes": { "type": "string" },
+        "external_id": { "type": "string", "description": "Invoice number or ingest:{fileId}:{n}." },
+        "source_file_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "Lead": {
+      "type": "object",
+      "required": ["name", "event_date"],
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "external_id": { "type": "string", "description": "HubSpot deal ID; links lead to derived event." },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "event_date": { "type": "string", "description": "YYYY-MM-DD" },
+        "event_type": { "type": "string" },
+        "location": { "type": "string" },
+        "latitude": { "type": ["number", "null"] },
+        "longitude": { "type": ["number", "null"] },
+        "budget": { "type": "string", "description": "Free-text." },
+        "message": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "COMPLETED"] },
+        "deal_stage": { "type": "string" },
+        "metadata": { "type": "object", "additionalProperties": true },
+        "source_file_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "InventoryItem": {
+      "type": "object",
+      "required": ["name"],
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "quantity": { "type": ["integer", "null"] },
+        "status": { "type": "string" },
+        "condition": { "type": "string" },
+        "location": { "type": "string" },
+        "replacement_cost": { "type": ["number", "null"] },
+        "notes": { "type": "string" },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "OrgMember": {
+      "type": "object",
+      "required": ["email"],
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string" },
+        "first_name": { "type": "string" },
+        "last_name": { "type": "string" },
+        "phone_number": { "type": "string" },
+        "notes": { "type": "string" },
+        "metadata": { "type": "object", "additionalProperties": true },
+        "positions": { "type": "array", "items": { "$ref": "#/definitions/OrgMemberPosition" } }
+      }
+    },
+    "OrgMemberPosition": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "rating": { "type": ["integer", "null"] },
+        "notes": { "type": "string" }
+      }
+    },
+    "Sponsor": {
+      "type": "object",
+      "required": ["name"],
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "external_id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "website": { "type": "string" },
+        "status": { "type": "string" },
+        "tier": { "type": "string" },
+        "notes": { "type": "string" },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "Account": {
+      "type": "object",
+      "required": ["name", "type"],
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "external_id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "description": "AccountType: INCOME | EXPENSE | ..." },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "Setlist": {
+      "type": "object",
+      "required": ["title"],
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "external_id": { "type": "string" },
+        "title": { "type": "string" },
+        "is_template": { "type": ["boolean", "null"] },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "Calllist": {
+      "type": "object",
+      "required": ["name"],
+      "allOf": [{ "$ref": "#/definitions/RecordMeta" }],
+      "properties": {
+        "external_id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    }
+  }
+}

@@ -1,0 +1,496 @@
+{
+  "server": {
+    "name": "soundcheck",
+    "version": "0.7.0",
+    "description": "Soundcheck MCP server — live-event staffing & management. Tools are grouped into read, write, and public tiers. Destructive writes require a confirmation_token handshake (call once with no token; the server returns confirmation_required + a token; resend the same args with the token to proceed).",
+    "auth": "Authenticated tools run in the caller's active organization unless organization_id is supplied. Public tools are unauthenticated and address an org by slug or id."
+  },
+  "conventions": {
+    "dates": "event_date / date fields are YYYY-MM-DD strings",
+    "timestamps": "start_time / end_time are RFC3339",
+    "org_scope": "organization_id defaults to the caller's active org on every authenticated tool",
+    "confirmation": "destructive=true tools require the confirmation_token handshake"
+  },
+  "tools": [
+    {
+      "name": "create_event",
+      "category": "events",
+      "access": "write",
+      "destructive": false,
+      "description": "Create a new event in the organization. Lands as an Event record (the gig).",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "description": "event name" },
+          "title": { "type": "string", "description": "optional display title (defaults to name)" },
+          "event_date": { "type": "string", "description": "RFC3339 event date" },
+          "start_time": { "type": "string", "description": "RFC3339 start time" },
+          "end_time": { "type": "string", "description": "RFC3339 end time" },
+          "location": { "type": "string", "description": "address or venue name" },
+          "location_name": { "type": "string", "description": "friendly location label" },
+          "notes": { "type": "string", "description": "visible notes" },
+          "event_type": { "type": "string", "description": "optional event type tag" },
+          "organization_id": { "type": "string", "description": "defaults to caller's active org" }
+        }
+      }
+    },
+    {
+      "name": "update_event",
+      "category": "events",
+      "access": "write",
+      "destructive": true,
+      "description": "Update fields on an existing event. Partial updates are safe — only supplied fields change.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["event_id"],
+        "properties": {
+          "event_id": { "type": "string", "description": "the event id to update" },
+          "title": { "type": "string", "description": "optional new title (gig display name)" },
+          "name": { "type": "string", "description": "optional new event name" },
+          "location": { "type": "string", "description": "optional new location string" },
+          "event_date": { "type": "string", "description": "optional new event date (RFC3339)" },
+          "start_time": { "type": "string", "description": "optional new start time (RFC3339)" },
+          "end_time": { "type": "string", "description": "optional new end time (RFC3339)" },
+          "event_status": { "type": "string", "enum": ["ACTIVE", "ARCHIVED", "DRAFT"], "description": "optional new status" },
+          "notes": { "type": "string", "description": "optional new visible notes" }
+        }
+      }
+    },
+    {
+      "name": "add_event_member",
+      "category": "events",
+      "access": "write",
+      "destructive": false,
+      "description": "Add members (by user id) to an event. Lands as EventMember rows.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["event_id", "user_ids"],
+        "properties": {
+          "event_id": { "type": "string", "description": "the event to add members to" },
+          "user_ids": { "type": "array", "items": { "type": "string" }, "description": "user ids to add as members" },
+          "organization_id": { "type": "string", "description": "defaults to caller's active org; must be the event's org" }
+        }
+      }
+    },
+    {
+      "name": "link_venue_to_event",
+      "category": "events",
+      "access": "write",
+      "destructive": false,
+      "description": "Link an existing org venue to an event.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["event_id", "venue_id"],
+        "properties": {
+          "event_id": { "type": "string", "description": "the event to link the venue to" },
+          "venue_id": { "type": "string", "description": "the venue id (must already be saved to the org's venue directory)" }
+        }
+      }
+    },
+    {
+      "name": "create_venue",
+      "category": "crm",
+      "access": "write",
+      "destructive": false,
+      "description": "Create a venue in the org's venue directory.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "description": "venue name" },
+          "organization_id": { "type": "string", "description": "defaults to caller's active org" },
+          "address": { "type": "object", "additionalProperties": { "type": "string" }, "description": "free-form address object (line1, city, state, postal_code, country)" },
+          "latitude": { "type": ["number", "null"] },
+          "longitude": { "type": ["number", "null"] },
+          "phone_number": { "type": "string" },
+          "website": { "type": "string" },
+          "notes": { "type": "string", "description": "shared venue notes" },
+          "org_notes": { "type": "string", "description": "notes private to your organization" },
+          "org_status": { "type": "string", "description": "your org's status label for this venue" },
+          "org_metadata": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    {
+      "name": "create_customer",
+      "category": "crm",
+      "access": "write",
+      "destructive": false,
+      "description": "Create a customer/contact in the org.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "description": "customer name" },
+          "organization_id": { "type": "string", "description": "defaults to caller's active org" },
+          "email": { "type": "string" },
+          "phone": { "type": "string" },
+          "website": { "type": "string" },
+          "address": { "type": "object", "additionalProperties": { "type": "string" } },
+          "status": { "type": "string", "description": "org's status label for this customer" },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "create_sponsor",
+      "category": "crm",
+      "access": "write",
+      "destructive": false,
+      "description": "Create a sponsor in the org.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "description": "sponsor name" },
+          "organization_id": { "type": "string", "description": "defaults to caller's active org" },
+          "email": { "type": "string" },
+          "phone": { "type": "string" },
+          "website": { "type": "string" },
+          "status": { "type": "string", "description": "org's status label for this sponsor" },
+          "tier": { "type": "string", "description": "sponsorship tier label" },
+          "notes": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    {
+      "name": "create_setlist",
+      "category": "setlists",
+      "access": "write",
+      "destructive": false,
+      "description": "Create an empty setlist, optionally attached to an event or saved as a template.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["organization_id", "title"],
+        "properties": {
+          "organization_id": { "type": "string", "description": "the organization to create the setlist in" },
+          "title": { "type": "string", "description": "title of the setlist" },
+          "event_id": { "type": "string", "description": "optional: associate the setlist with this event" },
+          "is_template": { "type": "boolean", "description": "true to save as a reusable template" }
+        }
+      }
+    },
+    {
+      "name": "create_calllist",
+      "category": "calllists",
+      "access": "write",
+      "destructive": false,
+      "description": "Create an empty calllist (named crew roster) in the org.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "description": "calllist name" },
+          "description": { "type": "string" },
+          "organization_id": { "type": "string", "description": "defaults to caller's active org" }
+        }
+      }
+    },
+    {
+      "name": "apply_calllist_to_event",
+      "category": "calllists",
+      "access": "write",
+      "destructive": false,
+      "description": "Apply a calllist to an event, creating invitations for its members.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["calllist_id", "event_id"],
+        "properties": {
+          "calllist_id": { "type": "string", "description": "the calllist to apply" },
+          "event_id": { "type": "string", "description": "the event to apply the calllist to" }
+        }
+      }
+    },
+    {
+      "name": "create_import_from_paste",
+      "category": "import-wizard",
+      "access": "write",
+      "destructive": false,
+      "description": "STEP 1 of the spreadsheet/CSV import wizard. Create an import job from pasted CSV/TSV. The server parses rows into a UEF document for the chosen target_type.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["target_type", "paste_text"],
+        "properties": {
+          "organization_id": { "type": "string", "description": "defaults to caller's active org" },
+          "target_type": { "type": "string", "enum": ["EVENT", "LEAD", "INVENTORY", "MEMBER"], "description": "what the data becomes" },
+          "paste_text": { "type": "string", "description": "raw CSV or TSV text; first row is the header row" },
+          "source_name": { "type": "string", "description": "label for this import (e.g. original filename); defaults to 'pasted-data'" }
+        }
+      }
+    },
+    {
+      "name": "get_import_field_catalog",
+      "category": "import-wizard",
+      "access": "read",
+      "destructive": false,
+      "description": "Return the UEF field catalog (mappable target field paths like events[].title, members[].email) for a target type. Drives column→field mapping.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["target_type"],
+        "properties": {
+          "target_type": { "type": "string", "enum": ["EVENT", "LEAD", "INVENTORY", "MEMBER"] }
+        }
+      }
+    },
+    {
+      "name": "map_import",
+      "category": "import-wizard",
+      "access": "write",
+      "destructive": false,
+      "description": "STEP 2. Resolve the column→UEF-field mapping. Omit `mapping` to auto-map (AI/heuristic); supply it to override.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["job_id"],
+        "properties": {
+          "organization_id": { "type": "string", "description": "defaults to caller's active org" },
+          "job_id": { "type": "string", "description": "the import job id" },
+          "mapping": {
+            "type": "object",
+            "description": "OMIT to auto-map. Provide to override.",
+            "properties": {
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["column"],
+                  "properties": {
+                    "column": { "type": "string", "description": "exact source column header" },
+                    "uef_field": { "type": "string", "description": "target UEF field path from get_import_field_catalog (e.g. events[].title, members[].email); omit to ignore the column" },
+                    "transform": { "type": "string", "description": "optional value transform hint, e.g. parse_date(MM/DD/YYYY)" },
+                    "notes": { "type": "string" }
+                  }
+                }
+              },
+              "row_grouping": { "type": "string", "enum": ["one_row_per_event", "group_by_external_id"], "description": "EVENT imports only" },
+              "qualifying_stages": { "type": "array", "items": { "type": "string" }, "description": "LEAD imports only: deal-stage values that also turn a lead into an event" }
+            }
+          },
+          "save_as": { "type": "string", "description": "optional name to save this mapping as a reusable template" }
+        }
+      }
+    },
+    {
+      "name": "preview_import",
+      "category": "import-wizard",
+      "access": "read",
+      "destructive": false,
+      "description": "STEP 3. Dry-run the import (no writes). Returns the resolved UEF document and a preview of what would be created.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["job_id"],
+        "properties": {
+          "organization_id": { "type": "string" },
+          "job_id": { "type": "string", "description": "the import job id" }
+        }
+      }
+    },
+    {
+      "name": "commit_import",
+      "category": "import-wizard",
+      "access": "write",
+      "destructive": true,
+      "description": "STEP 4. Write the parsed UEF document to the live system (creates events/venues/customers/members/leads/inventory per target_type).",
+      "inputSchema": {
+        "type": "object",
+        "required": ["job_id"],
+        "properties": {
+          "organization_id": { "type": "string" },
+          "job_id": { "type": "string", "description": "the import job id" },
+          "confirmation_token": { "type": "string", "description": "empty on first call; server returns confirmation_required + a token; resend with the token to commit" }
+        }
+      }
+    },
+    {
+      "name": "create_ingestion_batch",
+      "category": "ingestion",
+      "access": "write",
+      "destructive": false,
+      "description": "STEP 1 of file ingestion (PDFs/images/text → UEF). Create an empty ingestion batch attached to an event.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["event_id"],
+        "properties": {
+          "organization_id": { "type": "string", "description": "defaults to caller's active org" },
+          "event_id": { "type": "string", "description": "the event the batch belongs to" }
+        }
+      }
+    },
+    {
+      "name": "add_ingestion_text",
+      "category": "ingestion",
+      "access": "write",
+      "destructive": false,
+      "description": "Add pasted text (email thread, itinerary, notes, schedule) to a batch. The server analyzes it into a per-file UEF proposal (extracted_uef).",
+      "inputSchema": {
+        "type": "object",
+        "required": ["event_id", "batch_id", "text"],
+        "properties": {
+          "organization_id": { "type": "string" },
+          "event_id": { "type": "string" },
+          "batch_id": { "type": "string" },
+          "text": { "type": "string", "description": "the pasted text to ingest (max ~10MB)" },
+          "source_name": { "type": "string", "description": "label/filename (e.g. 'promoter-email'); defaults to pasted-text.txt" }
+        }
+      }
+    },
+    {
+      "name": "trigger_ingestion_merge",
+      "category": "ingestion",
+      "access": "write",
+      "destructive": false,
+      "description": "Run the cross-file merge over a batch, consolidating each file's extracted_uef into one merged proposal.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["event_id", "batch_id"],
+        "properties": {
+          "organization_id": { "type": "string" },
+          "event_id": { "type": "string" },
+          "batch_id": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_ingestion_batch_review",
+      "category": "ingestion",
+      "access": "read",
+      "destructive": false,
+      "description": "Get a batch's merged review: the consolidated UEF proposal (proposals.events[0] with members/schedule_items/ledger_items, plus leads) and a merge_version. The indexes used at commit time refer into this proposal.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["event_id", "batch_id"],
+        "properties": {
+          "organization_id": { "type": "string" },
+          "event_id": { "type": "string" },
+          "batch_id": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "commit_ingestion_batch",
+      "category": "ingestion",
+      "access": "write",
+      "destructive": true,
+      "description": "Commit selected rows from the MERGED batch proposal. Index arrays select which proposed members/schedule/ledger/leads to write; event_field_keys writes event-level fields (venue/location). Lands as EventMember, ScheduleItem, LedgerItem, LeadRequest, and (optionally) a CRM Venue.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["event_id", "batch_id", "merge_version"],
+        "properties": {
+          "organization_id": { "type": "string" },
+          "event_id": { "type": "string" },
+          "batch_id": { "type": "string" },
+          "merge_version": { "type": "integer", "description": "from get_ingestion_batch_review; commit is rejected (409) if a re-merge happened since you reviewed" },
+          "schedule_idx": { "type": "array", "items": { "type": "integer" }, "description": "indexes into proposals.events[0].schedule_items" },
+          "member_idx": { "type": "array", "items": { "type": "integer" }, "description": "indexes into proposals.events[0].members" },
+          "ledger_idx": { "type": "array", "items": { "type": "integer" }, "description": "indexes into proposals.events[0].ledger_items" },
+          "lead_idx": { "type": "array", "items": { "type": "integer" }, "description": "indexes into proposals leads" },
+          "event_field_keys": { "type": "array", "items": { "type": "string", "enum": ["venue", "location"] }, "description": "event-level fields to overwrite from the merged proposal; selecting 'venue' creates a CRM venue if none matches by name" },
+          "edited_uef_json": { "type": "string", "description": "optional corrected UEF document (JSON string, same shape as proposals); the indexes select FROM it. Targeted corrections only" },
+          "confirmation_token": { "type": "string", "description": "empty on first call; resend with the returned token to commit" }
+        }
+      }
+    },
+    {
+      "name": "commit_ingestion_file",
+      "category": "ingestion",
+      "access": "write",
+      "destructive": true,
+      "description": "Commit selected rows from a SINGLE file's extracted_uef proposal (skips the merge step). Same index semantics as commit_ingestion_batch.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["event_id", "batch_id", "file_id"],
+        "properties": {
+          "organization_id": { "type": "string" },
+          "event_id": { "type": "string" },
+          "batch_id": { "type": "string" },
+          "file_id": { "type": "string" },
+          "schedule_idx": { "type": "array", "items": { "type": "integer" } },
+          "member_idx": { "type": "array", "items": { "type": "integer" } },
+          "ledger_idx": { "type": "array", "items": { "type": "integer" } },
+          "lead_idx": { "type": "array", "items": { "type": "integer" } },
+          "edited_uef_json": { "type": "string", "description": "optional corrected UEF document (JSON string)" },
+          "confirmation_token": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "request_booking",
+      "category": "public",
+      "access": "write",
+      "destructive": false,
+      "description": "PUBLIC (unauthenticated). Submit a staffing/booking request to an org. Lands as a LeadRequest — maps to a UEF Lead.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["organization_id", "name", "email", "event_date", "event_type", "location"],
+        "properties": {
+          "organization_id": { "type": "string", "description": "org slug or id to send the request to" },
+          "name": { "type": "string", "description": "requester's name" },
+          "email": { "type": "string", "description": "requester's email" },
+          "event_date": { "type": "string", "description": "event date (e.g. 2026-07-04)" },
+          "event_type": { "type": "string", "description": "kind of event (wedding, festival, corporate, concert)" },
+          "location": { "type": "string", "description": "city / venue / address" },
+          "phone": { "type": "string" },
+          "budget": { "type": "string", "description": "approximate budget, free-form" },
+          "message": { "type": "string", "description": "roles, headcount, details" }
+        }
+      }
+    },
+    {
+      "name": "request_sponsorship",
+      "category": "public",
+      "access": "write",
+      "destructive": false,
+      "description": "PUBLIC (unauthenticated). Submit a sponsorship inquiry to an org.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["organization_id", "name", "email"],
+        "properties": {
+          "organization_id": { "type": "string", "description": "org slug or id" },
+          "name": { "type": "string" },
+          "email": { "type": "string" },
+          "phone": { "type": "string" },
+          "website": { "type": "string" },
+          "sponsorship_interest": { "type": "string" },
+          "estimated_budget": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  ],
+  "tool_index": {
+    "note": "Full surface as of v0.7.0 (~77 tools). Schemas above cover the write/ingestion/import tools that UEF data maps to. The reads below are listed for completeness.",
+    "read": [
+      "list_events", "get_event", "get_event_audit_logs",
+      "list_setlists", "get_setlist", "get_setlists_by_event",
+      "get_me", "list_users", "list_organizations", "get_organization",
+      "list_crew_offers", "list_availability_requests",
+      "list_venues", "list_customers", "list_sponsors", "list_inventory",
+      "list_org_positions", "list_calllists", "get_calllist",
+      "get_event_schedule", "get_event_checklist",
+      "get_user_availability", "get_availability_request",
+      "list_event_members", "get_venue", "get_customer",
+      "list_imports", "get_import", "get_import_field_catalog", "preview_import",
+      "list_ingestion_batches", "get_ingestion_batch", "get_ingestion_batch_review",
+      "get_ingestion_file_review",
+      "list_notifications", "preview_event_recipients",
+      "my_agenda", "my_pending_actions",
+      "get_public_org", "list_positions"
+    ],
+    "write": [
+      "create_event", "update_event", "duplicate_event", "archive_event", "unarchive_event",
+      "add_event_member", "link_venue_to_event",
+      "accept_invitation", "decline_invitation", "accept_crew_offer", "decline_crew_offer",
+      "create_setlist", "create_calllist", "apply_calllist_to_event",
+      "set_availability", "create_availability_request", "send_availability_request", "respond_to_availability_request",
+      "create_venue", "create_customer", "create_sponsor",
+      "create_import_from_paste", "map_import", "commit_import",
+      "create_ingestion_batch", "add_ingestion_text", "trigger_ingestion_merge",
+      "dismiss_ingestion_merge", "retry_ingestion_file", "dismiss_ingestion_file",
+      "commit_ingestion_file", "commit_ingestion_batch", "request_attachment_upload",
+      "send_message", "broadcast_event_reminder"
+    ],
+    "public": ["get_public_org", "list_positions", "request_booking", "request_sponsorship"],
+    "destructive": ["update_event", "archive_event", "commit_import", "commit_ingestion_file", "commit_ingestion_batch", "send_message", "broadcast_event_reminder"]
+  }
+}
